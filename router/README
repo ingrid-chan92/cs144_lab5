@@ -1,0 +1,41 @@
+Overview:
+---------
+
+icmp_handler.c :
+- Contains all code used to send ICMP messages
+- sr_icmp_t3_hdr is used for all type 3 calls AND type 11. This is because type 11 ICMP messages also require the IP header/datagram to be sent back, making use of the "data" field
+- echo is the only ICMP call which alters the original packet instead of creating a fresh packet
+
+arp_handler.c :
+- Contains all code used to send ARP replies and requests. Also contains the method used to forward packets since ARP is closely tied to forwarding
+- Contains the handle_arpreq() method which determines whether to resend a request or send a Host-Unreachable. This method is called by arp_sweepreqs()
+- The Pseudocode in sr_arpcache.h described waiting 1 second between checking requests. This check is ignored because the wait caused Host-Unreachable messages to respond too slowly
+
+sr_arpcache.c :
+- No substantial additions. While loop logic is based off given pseudocode
+
+sr_protocol.h :
+- Added TCP and UDP codes under sr_ip_protocol
+- Added ICMP type/code enums
+
+sr_router.c :
+- Main logic for determining what to do for each packet is located in processArp, processIP, and processForward. sr_handle_packet calls these methods
+- ARP logic:
+	- Only broadcasted ARPs and ARPs destined to us are processed. Every other ARP message is ignored
+
+- IP logic:
+	- TTL is decremented after the sanity check so improper packets are thrown away before any processing
+	- If TTL is 0 after decrement, skip rest of processing and send time exceeded
+	- Currently only processes Echo requests
+
+- Forward logic:
+	- If TTL is 0 after decrement, skip all sort of processing and send time exceeded
+	- Logic is as described in assignment.
+
+- we_are_dest() checks if the given IP belongs to any of our interfaces and returns true if that's the case
+
+sr_utils.c :
+- Added methods which are reused in several parts of the code and generic utility methods
+- findLongestMatchPrefix() : Finds the routing table entry with the longest matching prefix
+- is_broadcast_mac() : Checks if the dhost of the Ethernet header is broadcast
+- is_sane_icmp/ip_packet : Validates whether the given packet is the proper size and verifies checksum. Only method that prints out data to screen.
