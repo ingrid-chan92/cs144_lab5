@@ -136,7 +136,7 @@ void processIP(struct sr_instance* sr,
 	struct sr_ip_hdr *ipHeader = (struct sr_ip_hdr *) (packet + sizeof(struct sr_ethernet_hdr));
 
 	/* Ignore invalid packets */
-	if (!is_sane_icmp_packet(packet, len)) {
+	if (!is_sane_ip_packet(packet, len)) {
 		return;
 	}
 
@@ -144,6 +144,11 @@ void processIP(struct sr_instance* sr,
 
 	if (ipHeader->ip_p == ip_protocol_icmp) {
 		/* ICMP request */
+
+		/* Ignore invalid packets */
+		if (!is_sane_icmp_packet(packet, len)) {
+			return;
+		}
 
 		/* Process ICMP only if echo*/
 		struct sr_icmp_hdr *icmpHeader = (struct sr_icmp_hdr *)(packet + sizeof(struct sr_ethernet_hdr) + sizeof(struct sr_ip_hdr));

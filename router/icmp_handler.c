@@ -35,7 +35,7 @@ void icmp_send_echo_reply(struct sr_instance* sr,
 	ipHeader->ip_dst = ipHeader->ip_src;
 	ipHeader->ip_src = sourceIP;
 	ipHeader->ip_sum = 0;
-	ipHeader->ip_ttl = 255;
+	ipHeader->ip_ttl = 64;
 	ipHeader->ip_sum = cksum(ipHeader, sizeof(struct sr_ip_hdr));
 
 	/* ICMP header */
