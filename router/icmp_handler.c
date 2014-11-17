@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "icmp_handler.h"
+#include "arp_handler.h"
 #include "sr_utils.h"
 
 void icmp_send_echo_reply(struct sr_instance* sr,
@@ -34,14 +35,23 @@ void icmp_send_echo_reply(struct sr_instance* sr,
 	ipHeader->ip_dst = ipHeader->ip_src;
 	ipHeader->ip_src = sourceIP;
 	ipHeader->ip_sum = 0;
+	ipHeader->ip_ttl = 255;
 	ipHeader->ip_sum = cksum(ipHeader, sizeof(struct sr_ip_hdr));
 
 	/* ICMP header */
 	struct sr_icmp_hdr *icmpHeader = (struct sr_icmp_hdr *) (packet + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t));
 	icmpHeader->icmp_type = htons(icmp_echo_reply_type);
 	icmpHeader->icmp_code = htons(0);
+	icmpHeader->icmp_sum = 0;
+	icmpHeader->icmp_sum = cksum(icmpHeader, sizeof(struct sr_icmp_hdr));
 
-	sr_send_packet(sr, packet, len, interface);	
+	/* Record this IP into arp cache if not found */
+	struct sr_arpentry *arpEntry = sr_arpcache_lookup(&(sr->cache), ntohl(ipHeader->ip_dst));
+	if (arpEntry == NULL) {
+		sr_arpcache_queuereq(&(sr->cache), ntohl(ipHeader->ip_dst), packet, len, interface);
+	} else {
+		sr_send_packet(sr, packet, len, interface);	
+	}	
 }
 
 void icmp_send_net_unreachable(struct sr_instance* sr,

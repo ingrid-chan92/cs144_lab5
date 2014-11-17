@@ -134,21 +134,16 @@ void processIP(struct sr_instance* sr,
         char* interface) {
 
 	struct sr_ip_hdr *ipHeader = (struct sr_ip_hdr *) (packet + sizeof(struct sr_ethernet_hdr));
+
+	/* Ignore invalid packets */
+	if (!is_sane_icmp_packet(packet, len)) {
+		return;
+	}
+
+	ipHeader->ip_ttl--;
+
 	if (ipHeader->ip_p == ip_protocol_icmp) {
 		/* ICMP request */
-
-		/* Ignore invalid packets */
-		if (!is_sane_icmp_packet(packet, len)) {
-			return;
-		}
-
-		ipHeader->ip_ttl--;
-
-		/* Reply with timeout if TTL exceeded */
-		if (ipHeader->ip_ttl == 0) {
-			icmp_send_time_exceeded(sr, packet, len, interface);
-			return;
-		}
 
 		/* Process ICMP only if echo*/
 		struct sr_icmp_hdr *icmpHeader = (struct sr_icmp_hdr *)(packet + sizeof(struct sr_ethernet_hdr) + sizeof(struct sr_ip_hdr));
@@ -157,6 +152,13 @@ void processIP(struct sr_instance* sr,
 		}
 
 	} else if (ipHeader->ip_p == ip_protocol_tcp || ipHeader->ip_p == ip_protocol_udp) {
+
+		/* Reply with timeout if TTL exceeded */		
+		if (ipHeader->ip_ttl == 0) {
+			icmp_send_time_exceeded(sr, packet, len, interface);
+			return;
+		}
+
 		/* TCP or UDP Payload */
 		icmp_send_port_unreachable(sr, packet, len, interface);
 
