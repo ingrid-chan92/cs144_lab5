@@ -32,6 +32,7 @@
 #include "sr_dumper.h"
 #include "sr_router.h"
 #include "sr_rt.h"
+#include "sr_nat.h"
 
 extern char* optarg;
 
@@ -65,11 +66,17 @@ int main(int argc, char **argv)
     unsigned int port = DEFAULT_PORT;
     unsigned int topo = DEFAULT_TOPO;
     char *logfile = 0;
+
+    int natEnable = 0;
+    int queryTimeout = 60;
+    int tcpEstTimeout = 7440;
+    int tcpTransTimeout = 300;
+
     struct sr_instance sr;
 
     printf("Using %s\n", VERSION_INFO);
 
-    while ((c = getopt(argc, argv, "hs:v:p:u:t:r:l:T:")) != EOF)
+    while ((c = getopt(argc, argv, "hns:v:p:u:t:r:l:T:I:E:R:")) != EOF)
     {
         switch (c)
         {
@@ -100,6 +107,18 @@ int main(int argc, char **argv)
                 break;
             case 'T':
                 template = optarg;
+                break;
+            case 'n':
+                natEnable = 1;
+                break;
+            case 'I':
+                queryTimeout = atoi(optarg);
+                break;
+            case 'E':
+                tcpEstTimeout = atoi(optarg);
+                break;
+            case 'R':
+                tcpTransTimeout = atoi(optarg);
                 break;
         } /* switch */
     } /* -- while -- */
@@ -155,6 +174,21 @@ int main(int argc, char **argv)
       /* Read from specified routing table */
       sr_load_rt_wrap(&sr, rtable);
     }
+
+
+    /* nat intialization */
+    sr.nat = NULL;
+    if (natEnable) {
+        sr.nat = (struct sr_nat *) malloc(sizeof(struct sr_nat));
+        assert(sr.nat);
+
+        sr_nat_init(sr.nat);
+
+        sr.nat->queryTimeout = queryTimeout;
+        sr.nat->tcpEstTimeout = tcpEstTimeout;
+        sr.nat->tcpTransTimeout = tcpTransTimeout;
+    }
+
 
     /* call router init (for arp subsystem etc.) */
     sr_init(&sr);

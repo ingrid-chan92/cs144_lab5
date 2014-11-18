@@ -31,6 +31,10 @@ struct sr_nat_mapping {
 
 struct sr_nat {
   /* add any fields here */
+	int queryTimeout;
+	int tcpEstTimeout;
+	int tcpTransTimeout;
+
   struct sr_nat_mapping *mappings;
 
   /* threading */

@@ -48,7 +48,7 @@ void *sr_nat_timeout(void *nat_ptr) {  /* Periodic Timout handling */
     sleep(1.0);
     pthread_mutex_lock(&(nat->lock));
 
-    time_t curtime = time(NULL);
+    /* time_t curtime = time(NULL); EDIT ME*/
 
     /* handle periodic tasks here */
 
