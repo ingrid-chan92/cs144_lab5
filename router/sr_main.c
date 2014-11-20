@@ -178,6 +178,7 @@ int main(int argc, char **argv)
 
     /* nat intialization */
     sr.nat = NULL;
+	sr.natEnable = natEnable;
     if (natEnable) {
         sr.nat = (struct sr_nat *) malloc(sizeof(struct sr_nat));
         assert(sr.nat);
@@ -196,6 +197,10 @@ int main(int argc, char **argv)
     /* -- whizbang main loop ;-) */
     while( sr_read_from_server(&sr) == 1);
 
+	if (natEnable) {
+		sr_nat_destroy(sr.nat);
+	}
+	
     sr_destroy_instance(&sr);
 
     return 0;

@@ -6,6 +6,15 @@
 #include <time.h>
 #include <pthread.h>
 
+#include "sr_router.h"
+#include "sr_protocol.h"
+
+typedef enum {
+  incoming = 0,
+	outcoming = 1,
+	notCrossing = 2
+} pkt_dir;
+
 typedef enum {
   nat_mapping_icmp,
   nat_mapping_tcp
@@ -64,5 +73,12 @@ struct sr_nat_mapping *sr_nat_lookup_internal(struct sr_nat *nat,
 struct sr_nat_mapping *sr_nat_insert_mapping(struct sr_nat *nat,
   uint32_t ip_int, uint16_t aux_int, sr_nat_mapping_type type );
 
+/*	Translate the packet's dest/src IP based on whether it is
+		incoming or outcoming	*/
+void sr_nat_translate_packet(struct sr_instance* sr,
+	uint8_t * packet, unsigned int len, char* interface);
+
+pkt_dir getPacketDirection(struct sr_instance* sr, struct sr_ip_hdr *ipPacket);
+int is_ip_traversing_nat(struct sr_instance *sr, uint32_t ip);
 
 #endif

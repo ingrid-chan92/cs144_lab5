@@ -56,6 +56,7 @@ struct sr_instance
     FILE* logfile;
 
 	struct sr_nat *nat; /* NAT structure */
+	int natEnable;
 };
 
 /* -- sr_main.c -- */

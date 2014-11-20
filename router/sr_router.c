@@ -190,6 +190,16 @@ void processForward(struct sr_instance* sr,
 		return;
 	}
 
+	/* If NAT is enabled, do an address translation */
+	if (sr->natEnable) {
+		int failed = sr_nat_translate_packet(sr, packet, len, interface);
+		if (failed) {
+			/* packet could not be translated. Drop it */
+			printf("ERROR: Packet could not be NAT-translated.\n");
+			return;
+		}
+	}
+
 	/* At this point, all checks passed, check routing table */
 	struct sr_rt *closestMatch = findLongestMatchPrefix(sr->routing_table, ipHeader->ip_dst);
 
