@@ -22,6 +22,7 @@
 #include "sr_protocol.h"
 #include "sr_arpcache.h"
 #include "sr_utils.h"
+#include "sr_nat.h"
 #include "icmp_handler.h"
 #include "arp_handler.h"
 
@@ -90,6 +91,22 @@ void sr_handlepacket(struct sr_instance* sr,
 
 	} else if (ethertype(packet) == ethertype_ip) { 	/* IP packet */
 		struct sr_ip_hdr *ipHeader = (struct sr_ip_hdr *) (packet + sizeof(struct sr_ethernet_hdr));
+		
+		/* Ignore invalid packets */
+		if (!is_sane_ip_packet(packet, len)) {
+			return;
+		}
+
+		/* If NAT is enabled, do an address translation */
+		if (sr->natEnable) {
+			int failed = sr_nat_translate_packet(sr, packet, len, interface);
+			if (failed) {
+				/* packet could not be translated. Drop it */
+				printf("ERROR: Packet could not be NAT-translated.\n");
+				return;
+			}
+		}
+
 		if (we_are_dest(sr, ipHeader->ip_dst)) {
 			/* We are destination */
 			processIP(sr, packet, len, interface);
@@ -135,11 +152,6 @@ void processIP(struct sr_instance* sr,
 
 	struct sr_ip_hdr *ipHeader = (struct sr_ip_hdr *) (packet + sizeof(struct sr_ethernet_hdr));
 
-	/* Ignore invalid packets */
-	if (!is_sane_ip_packet(packet, len)) {
-		return;
-	}
-
 	ipHeader->ip_ttl--;
 
 	if (ipHeader->ip_p == ip_protocol_icmp) {
@@ -176,11 +188,6 @@ void processForward(struct sr_instance* sr,
         unsigned int len,
         char* interface) {
 
-	/* Ignore invalid packets */
-	if (!is_sane_ip_packet(packet, len)) {
-		return;
-	}
-
 	struct sr_ip_hdr *ipHeader = (struct sr_ip_hdr *) (packet + sizeof(struct sr_ethernet_hdr));
 
 	/* Reply with timeout if TTL exceeded */
@@ -188,16 +195,6 @@ void processForward(struct sr_instance* sr,
 	if (ipHeader->ip_ttl == 0) {
 		icmp_send_time_exceeded(sr, packet, len, interface);
 		return;
-	}
-
-	/* If NAT is enabled, do an address translation */
-	if (sr->natEnable) {
-		int failed = sr_nat_translate_packet(sr, packet, len, interface);
-		if (failed) {
-			/* packet could not be translated. Drop it */
-			printf("ERROR: Packet could not be NAT-translated.\n");
-			return;
-		}
 	}
 
 	/* At this point, all checks passed, check routing table */
