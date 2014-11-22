@@ -129,11 +129,9 @@ void icmp_send_type3(struct sr_instance* sr,
 	icmpResponse->icmp_code = code;
 	icmpResponse->unused = 0;
 	icmpResponse->next_mtu = 0;
-	if((len - sizeof(sr_ethernet_hdr_t)) > ICMP_DATA_SIZE) {
-		memcpy(icmpResponse->data, packet + sizeof(sr_ethernet_hdr_t), ICMP_DATA_SIZE);
-	} else {
-		memcpy(icmpResponse->data, packet + sizeof(sr_ethernet_hdr_t), len - sizeof(sr_ethernet_hdr_t));
-	}
+
+	memcpy(icmpResponse->data, packet + sizeof(sr_ethernet_hdr_t), sizeof(sr_ip_hdr_t) + 8);
+
 	icmpResponse->icmp_sum = 0;
 	icmpResponse->icmp_sum = cksum(icmpResponse, sizeof(sr_icmp_t3_hdr_t));
 
