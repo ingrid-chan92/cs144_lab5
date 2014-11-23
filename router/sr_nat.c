@@ -53,6 +53,13 @@ int sr_nat_destroy(struct sr_nat *nat) {  /* Destroys the nat (free memory) */
 		free(prev);
 	}
 
+	struct sr_tcp_syn *incoming = nat->incoming;
+	while (incoming != NULL) {
+		struct sr_tcp_syn *prev = incoming;
+		incoming = incoming->next;
+		free(prev);
+	}
+
   pthread_kill(nat->thread, SIGKILL);
   return pthread_mutex_destroy(&(nat->lock)) &&
     pthread_mutexattr_destroy(&(nat->attr));
