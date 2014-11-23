@@ -9,6 +9,8 @@
 #include "sr_router.h"
 #include "sr_protocol.h"
 
+#define TCP_SYN 0x02
+
 typedef enum {
   	dir_incoming,
 	dir_outgoing,
@@ -27,6 +29,14 @@ struct sr_nat_connection {
   struct sr_nat_connection *next;
 };
 
+struct sr_tcp_syn {
+	uint32_t ip_src;
+	uint16_t port_src;
+	time_t arrived;
+	uint8_t data[ICMP_DATA_SIZE];
+	struct sr_tcp_syn *next;
+};
+
 struct sr_nat_mapping {
   sr_nat_mapping_type type;
   uint32_t ip_int; /* internal ip addr */
@@ -43,9 +53,10 @@ struct sr_nat {
 	int queryTimeout;
 	int tcpEstTimeout;
 	int tcpTransTimeout;
+	int nextPort;
 
 	struct sr_nat_mapping *mappings;
-	int nextPort;
+	struct sr_tcp_syn *incoming;	
 	struct sr_instance *sr;
 
   /* threading */

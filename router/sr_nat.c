@@ -34,6 +34,7 @@ int sr_nat_init(struct sr_nat *nat) { /* Initializes the nat */
 
   /* Initialize any variables here */
 	nat->mappings = NULL;
+	nat->incoming = NULL;
 	nat->nextPort = 1024;
 
   return success;
@@ -63,8 +64,8 @@ void *sr_nat_timeout(void *nat_ptr) {  /* Periodic Timout handling */
     sleep(1.0);
     pthread_mutex_lock(&(nat->lock));
 
-    time_t curtime = time(NULL);
-		struct sr_nat *nat = (struct sr_nat *) nat_ptr;
+    /* time_t curtime = time(NULL); */
+
 
     /* Unsolicited timeout */
 
@@ -179,9 +180,8 @@ int sr_nat_translate_packet(struct sr_instance* sr,
 	struct sr_ip_hdr *ipPacket= (struct sr_ip_hdr *) (packet + sizeof(struct sr_ethernet_hdr));
 	pkt_dir direction = getPacketDirection(sr, ipPacket);
 	uint8_t ip_p = ipPacket->ip_p;
-	
-	/* SPECIAL CASES */
-	/* Unsupported protocol case: Drop packet */
+
+	/* Unsupported protocol: Drop packet */
 	if (ip_p != ip_protocol_icmp && ip_p != ip_protocol_tcp) {
 		return 1;
 	}	
@@ -203,8 +203,8 @@ int sr_nat_translate_packet(struct sr_instance* sr,
 				return 0;
 
 			} case ip_protocol_tcp: {
-				/* INSERT TCP STUFF HERE */
-				break;
+				/* Packet currently waiting in incoming. Do nothing for now */
+				return 1;
 			}
 		}		
 	}
@@ -230,7 +230,6 @@ int sr_nat_translate_packet(struct sr_instance* sr,
 			break;
 
 		} case ip_protocol_tcp: {
-			/* SUBJECT TO CHANGE */
 			sr_tcp_hdr_t *tcpPacket = (sr_tcp_hdr_t *) (packet + sizeof(struct sr_ethernet_hdr) + sizeof(struct sr_ip_hdr));
 		
 			if (direction == dir_incoming) {
@@ -264,7 +263,7 @@ struct sr_nat_mapping *sr_nat_get_mapping_from_packet(struct sr_instance* sr, ui
 	uint16_t port = 0;
 	sr_nat_mapping_type mappingType = 0;		
 
-	/* Get the IP and port from the packet */
+	/* Get the type and port from the packet */
 	switch(ipPacket->ip_p) {
 		case ip_protocol_icmp: {
 			sr_icmp_hdr_t *icmpPacket = (sr_icmp_hdr_t *) (packet + sizeof(struct sr_ethernet_hdr) + sizeof(struct sr_ip_hdr));
@@ -293,26 +292,73 @@ struct sr_nat_mapping *sr_nat_get_mapping_from_packet(struct sr_instance* sr, ui
 				/* Do nothing for ICMP */
 
 				if (mappingType == nat_mapping_tcp) {
-					/* TCP STUFF GOES HERE*/
+					sr_tcp_hdr_t *tcp = (sr_tcp_hdr_t *) (packet + sizeof(struct sr_ethernet_hdr) + sizeof(struct sr_ip_hdr));
+					
+					/* Queue unsolicited SYN TCP packets */
+					if (tcp->flags & TCP_SYN) {
+						struct sr_tcp_syn *incoming = sr->nat->incoming;
 
+						/* Check if this TCP packet is already waiting */						
+						while (incoming != NULL) {
+							if ((incoming->ip_src == ipPacket->ip_src) && (incoming->port_src == tcp->src_port)) {
+								break;
+							}
+							incoming = incoming->next;
+						}			
+
+						if (incoming == NULL) {
+							/* this connection not waiting. Add into waiting packets */
+							struct sr_tcp_syn *newTcp = (struct sr_tcp_syn *) malloc(sizeof(struct sr_tcp_syn));
+							newTcp->ip_src = ipPacket->ip_src;
+							newTcp->port_src = tcp->src_port;
+							newTcp->arrived = time(NULL);
+							memcpy(newTcp->data, packet + sizeof(struct sr_ethernet_hdr), ICMP_DATA_SIZE);
+
+							/* Put new packet at front of list */
+							newTcp->next = sr->nat->incoming;
+							sr->nat->incoming = newTcp;
+						}	
+					}
 				}
 			}
-
 			break;
 
 		} case dir_outgoing: {
 			mapping = sr_nat_lookup_internal(sr->nat, ipPacket->ip_src, port, mappingType);
 
 			if (mapping == NULL) {
-				/* TCP STUFF GOES HERE*/
 				/* Create new mapping for this IP/Port entry */
 				mapping = sr_nat_insert_mapping(sr->nat, ipPacket->ip_src, port, mappingType);
-			}
 
+				/* TCP Processing */
+				if (mappingType == nat_mapping_tcp) {
+					sr_tcp_hdr_t *tcp = (sr_tcp_hdr_t *) (packet + sizeof(struct sr_ethernet_hdr) + sizeof(struct sr_ip_hdr));
+					
+					if (tcp->flags & TCP_SYN) {
+						struct sr_tcp_syn *incoming = sr->nat->incoming;
+						struct sr_tcp_syn *prev = NULL;
+
+						/* Check if this TCP packet is already waiting */						
+						while (incoming != NULL) {
+							if ((incoming->ip_src == ipPacket->ip_dst) && (incoming->port_src == tcp->dest_port)) {
+								/* Silently drop matching incoming SYN packet */
+								if (prev != NULL) {
+									prev->next = incoming->next;
+								} else {
+									sr->nat->incoming = incoming->next;
+								}	
+								break;								
+							}
+							prev = incoming;
+							incoming = incoming->next;
+						}
+					}
+				}
+			}
 			break;
 
 		} case dir_notCrossing: {
-			printf("ERROR: Should never be here for non-crossing packet 2\n");
+			printf("ERROR: Should never be here for non-crossing packet\n");
 			break;			
 		}
 	}
