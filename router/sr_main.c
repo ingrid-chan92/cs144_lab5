@@ -188,6 +188,7 @@ int main(int argc, char **argv)
         sr.nat->queryTimeout = queryTimeout;
         sr.nat->tcpEstTimeout = tcpEstTimeout;
         sr.nat->tcpTransTimeout = tcpTransTimeout;
+	sr.nat->sr = &sr;
     }
 
 

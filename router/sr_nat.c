@@ -135,15 +135,40 @@ struct sr_nat_mapping *sr_nat_lookup_internal(struct sr_nat *nat,
    Actually returns a copy to the new mapping, for thread safety.
  */
 struct sr_nat_mapping *sr_nat_insert_mapping(struct sr_nat *nat,
-  uint32_t ip_int, uint16_t aux_int, sr_nat_mapping_type type ) {
+	uint32_t ip_int, uint16_t aux_int, sr_nat_mapping_type type ) {
 
-  pthread_mutex_lock(&(nat->lock));
+	pthread_mutex_lock(&(nat->lock));
 
-  /* handle insert here, create a mapping, and then return a copy of it */
-  struct sr_nat_mapping *mapping = NULL;
+	/* handle insert here, create a mapping, and then return a copy of it */
+	struct sr_if *externalIf = sr_get_interface(nat->sr, "eth2");
+	struct sr_nat_mapping *mapping = (struct sr_nat_mapping *) malloc(sizeof(struct sr_nat_mapping));
 
-  pthread_mutex_unlock(&(nat->lock));
-  return mapping;
+	/* Construct mapping from given values*/
+	mapping->type = type;
+	mapping->ip_int = ip_int;
+	mapping->ip_ext = externalIf->ip;
+	mapping->aux_int = aux_int;
+	mapping->last_updated = time(NULL);
+	mapping->conns = NULL;
+
+	/* Generate external port */
+	mapping->aux_ext = htons(nat->nextPort); 
+	nat->nextPort = nat->nextPort + 1;
+	if (nat->nextPort >= 65535) {
+		/* Max ports reached. Restart back at first port */
+		nat->nextPort = 1024;
+	}
+
+	/* Insert mapping into front of list */
+	mapping->next = nat->mappings;
+	nat->mappings = mapping;
+
+	/* Create a copy to return*/ 
+	struct sr_nat_mapping *copy = (struct sr_nat_mapping *) malloc(sizeof(struct sr_nat_mapping));
+	memcpy(copy, mapping, sizeof(struct sr_nat_mapping));
+
+	pthread_mutex_unlock(&(nat->lock));
+	return copy;
 }
 
 /*	Translate the packet's dest/src IP based on whether it is
@@ -153,19 +178,81 @@ int sr_nat_translate_packet(struct sr_instance* sr,
 
 	struct sr_ip_hdr *ipPacket= (struct sr_ip_hdr *) (packet + sizeof(struct sr_ethernet_hdr));
 	pkt_dir direction = getPacketDirection(sr, ipPacket);
+	uint8_t ip_p = ipPacket->ip_p;
 	
+	/* SPECIAL CASES */
 	/* Unsupported protocol case: Drop packet */
-	if (ipPacket->ip_p != ip_protocol_icmp && ipPacket->ip_p != ip_protocol_tcp) {
+	if (ip_p != ip_protocol_icmp && ip_p != ip_protocol_tcp) {
 		return 1;
 	}	
 
-	/* Non-crossing packet. Do not need translation */
+	/* Packet does not cross NAT. Do not need translation */
 	if (direction == dir_notCrossing) {
 		return 0;
 	}
 
-	/* At this point, packet translation is necessary */
+	/* At this point, packet is valid for mapping-lookup */
+
+	struct sr_nat_mapping *mapping = sr_nat_get_mapping_from_packet(sr, packet, direction);
+
+	/* NULL mapping case */
+	if (mapping == NULL) {
+		switch(ip_p) {
+			case ip_protocol_icmp: {
+				/* Packet meant for router. Do nothing to it*/
+				return 0;
+
+			} case ip_protocol_tcp: {
+				/* INSERT TCP STUFF HERE */
+				break;
+			}
+		}		
+	}
+
+	/* Mapping exists/Packet is valid and must be translated */
+
+	/* Rewrite the IP, Port, and recompute checksum*/
+	switch(ip_p) {
+		case ip_protocol_icmp: {
+			sr_icmp_hdr_t *icmpPacket = (sr_icmp_hdr_t *) (packet + sizeof(struct sr_ethernet_hdr) + sizeof(struct sr_ip_hdr));
+			
+			if (direction == dir_incoming) {
+				ipPacket->ip_dst = mapping->ip_int;
+				icmpPacket->icmp_identifier = mapping->aux_int;
+
+			} else if (direction == dir_outgoing) {
+				ipPacket->ip_src = mapping->ip_ext;
+				icmpPacket->icmp_identifier = mapping->aux_ext;
+			}
+			
+			icmpPacket->icmp_sum = 0;
+			icmpPacket->icmp_sum = cksum(icmpPacket, sizeof(sr_icmp_hdr_t));
+			break;
+
+		} case ip_protocol_tcp: {
+			/* SUBJECT TO CHANGE */
+			sr_tcp_hdr_t *tcpPacket = (sr_tcp_hdr_t *) (packet + sizeof(struct sr_ethernet_hdr) + sizeof(struct sr_ip_hdr));
+		
+			if (direction == dir_incoming) {
+				ipPacket->ip_dst = mapping->ip_int;
+				tcpPacket->dest_port = mapping->aux_int;
+
+			} else if (direction == dir_outgoing) {
+				ipPacket->ip_src = mapping->ip_ext;
+				tcpPacket->src_port = mapping->aux_ext;
+			}	
+			
+			tcpPacket->sum = 0;
+			tcpPacket->sum = cksum(tcpPacket, sizeof(sr_tcp_hdr_t));				
+			break;
+		 }
+	}
+
+	/* Rewrite the IP checksum */
+	ipPacket->ip_sum = 0;
+	ipPacket->ip_sum = cksum(ipPacket, sizeof(sr_ip_hdr_t));
 	
+	free(mapping);
 	return 0;
 }
 
@@ -203,7 +290,7 @@ struct sr_nat_mapping *sr_nat_get_mapping_from_packet(struct sr_instance* sr, ui
 			mapping = sr_nat_lookup_external(sr->nat, port, mappingType);
 			
 			if (mapping == NULL) {
-				/* Do nothing for ICMP. Will drop packet */
+				/* Do nothing for ICMP */
 
 				if (mappingType == nat_mapping_tcp) {
 					/* TCP STUFF GOES HERE*/
@@ -225,7 +312,7 @@ struct sr_nat_mapping *sr_nat_get_mapping_from_packet(struct sr_instance* sr, ui
 			break;
 
 		} case dir_notCrossing: {
-			printf("ERROR: Should never be here for non-crossing packet\n");
+			printf("ERROR: Should never be here for non-crossing packet 2\n");
 			break;			
 		}
 	}
@@ -234,11 +321,16 @@ struct sr_nat_mapping *sr_nat_get_mapping_from_packet(struct sr_instance* sr, ui
 }
 
 pkt_dir getPacketDirection(struct sr_instance* sr, struct sr_ip_hdr *ipPacket) {
-	int internalSrc = is_ip_within_nat(sr, ipPacket->ip_src, "eth1");
-	int internalDest = is_ip_within_nat(sr, ipPacket->ip_dst, "eth1");
+	int internalSrc = is_ip_within_nat(sr, ipPacket->ip_src);
+	int internalDest = is_ip_within_nat(sr, ipPacket->ip_dst);
 
 	struct sr_if* if_eth2 = sr_get_interface(sr, "eth2");	
 	int destIsNat = ipPacket->ip_dst == if_eth2->ip;
+
+	/* UNKNOWN DEST IP: Do nothing to this packet */
+	if (internalDest < 0) {
+		return dir_notCrossing;
+	}
 
 	/* INCOMING: src is outside NAT. Dest is eth2*/
 	if (!internalSrc && destIsNat) {
@@ -254,11 +346,15 @@ pkt_dir getPacketDirection(struct sr_instance* sr, struct sr_ip_hdr *ipPacket) {
 	return dir_notCrossing;
 }
 
-int is_ip_within_nat(struct sr_instance *sr, uint32_t ip, const char *ifName) {
+int is_ip_within_nat(struct sr_instance *sr, uint32_t ip) {
 	struct sr_rt *closest = findLongestMatchPrefix(sr->routing_table, ip);
-	if (closest != NULL) {		
-		if (strncmp(closest->interface, ifName, 4) == 0) {
-			/* If using eth1, must interact with NAT */
+	if (closest == NULL) {
+		/* Net unreachable. Do nothing to this packet */
+		return -1;
+
+	} else {		
+		/* Check if this IP uses eth1 */
+		if (strncmp(closest->interface, "eth1", 4) == 0) {
 			return 1;
 		}
 	}

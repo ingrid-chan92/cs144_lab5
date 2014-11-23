@@ -46,6 +46,7 @@ struct sr_nat {
 
 	struct sr_nat_mapping *mappings;
 	int nextPort;
+	struct sr_instance *sr;
 
   /* threading */
   pthread_mutex_t lock;
@@ -85,6 +86,6 @@ struct sr_nat_mapping *sr_nat_get_mapping_from_packet(struct sr_instance* sr,
 	uint8_t *packet, pkt_dir direction);
 
 pkt_dir getPacketDirection(struct sr_instance* sr, struct sr_ip_hdr *ipPacket);
-int is_ip_within_nat(struct sr_instance *sr, uint32_t ip, const char *ifName) ;
+int is_ip_within_nat(struct sr_instance *sr, uint32_t ip) ;
 
 #endif
