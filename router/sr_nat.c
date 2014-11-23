@@ -325,16 +325,16 @@ pkt_dir getPacketDirection(struct sr_instance* sr, struct sr_ip_hdr *ipPacket) {
 	int internalDest = is_ip_within_nat(sr, ipPacket->ip_dst);
 
 	struct sr_if* if_eth2 = sr_get_interface(sr, "eth2");	
-	int destIsNat = ipPacket->ip_dst == if_eth2->ip;
-
-	/* UNKNOWN DEST IP: Do nothing to this packet */
-	if (internalDest < 0) {
-		return dir_notCrossing;
-	}
+	int destIsNat = ipPacket->ip_dst == if_eth2->ip;	
 
 	/* INCOMING: src is outside NAT. Dest is eth2*/
 	if (!internalSrc && destIsNat) {
 		return dir_incoming;
+	}
+
+	/* UNKNOWN DEST IP: Do nothing to this packet */
+	if (internalDest < 0) {
+		return dir_notCrossing;
 	}
 
 	/* OUTCOMING: src is inside NAT. Dest is outside NAT */
