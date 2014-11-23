@@ -85,10 +85,10 @@ void *sr_nat_timeout(void *nat_ptr) {  /* Periodic Timout handling */
 struct sr_nat_mapping *sr_nat_lookup_external(struct sr_nat *nat,
     uint16_t aux_ext, sr_nat_mapping_type type ) {
 
-  pthread_mutex_lock(&(nat->lock));
+	pthread_mutex_lock(&(nat->lock));
 
-  /* handle lookup here, malloc and assign to copy */
-  struct sr_nat_mapping *copy = NULL;
+	/* handle lookup here, malloc and assign to copy */
+	struct sr_nat_mapping *copy = NULL;
 	struct sr_nat_mapping *curr = nat->mappings;
 
 	while (curr != NULL) {
@@ -102,8 +102,8 @@ struct sr_nat_mapping *sr_nat_lookup_external(struct sr_nat *nat,
 		curr = curr->next;
 	}
 
-  pthread_mutex_unlock(&(nat->lock));
-  return copy;
+	pthread_mutex_unlock(&(nat->lock));
+	return copy;
 }
 
 /* Get the mapping associated with given internal (ip, port) pair.
@@ -128,8 +128,8 @@ struct sr_nat_mapping *sr_nat_lookup_internal(struct sr_nat *nat,
 		curr = curr->next;
 	}
 
-  pthread_mutex_unlock(&(nat->lock));
-  return copy;
+	pthread_mutex_unlock(&(nat->lock));
+	return copy;
 }
 
 /* Insert a new mapping into the nat's mapping table.
@@ -296,9 +296,10 @@ struct sr_nat_mapping *sr_nat_get_mapping_from_packet(struct sr_instance* sr, ui
 					
 					/* Queue unsolicited SYN TCP packets */
 					if (tcp->flags & TCP_SYN) {
-						struct sr_tcp_syn *incoming = sr->nat->incoming;
+						pthread_mutex_lock(&(sr->nat->lock));
 
-						/* Check if this TCP packet is already waiting */						
+						/* Check if this TCP packet is already waiting */	
+						struct sr_tcp_syn *incoming = sr->nat->incoming;					
 						while (incoming != NULL) {
 							if ((incoming->ip_src == ipPacket->ip_src) && (incoming->port_src == tcp->src_port)) {
 								break;
@@ -318,6 +319,8 @@ struct sr_nat_mapping *sr_nat_get_mapping_from_packet(struct sr_instance* sr, ui
 							newTcp->next = sr->nat->incoming;
 							sr->nat->incoming = newTcp;
 						}	
+
+						pthread_mutex_unlock(&(sr->nat->lock));
 					}
 				}
 			}
@@ -335,6 +338,8 @@ struct sr_nat_mapping *sr_nat_get_mapping_from_packet(struct sr_instance* sr, ui
 					sr_tcp_hdr_t *tcp = (sr_tcp_hdr_t *) (packet + sizeof(struct sr_ethernet_hdr) + sizeof(struct sr_ip_hdr));
 					
 					if (tcp->flags & TCP_SYN) {
+						pthread_mutex_lock(&(sr->nat->lock));
+
 						struct sr_tcp_syn *incoming = sr->nat->incoming;
 						struct sr_tcp_syn *prev = NULL;
 
@@ -352,6 +357,8 @@ struct sr_nat_mapping *sr_nat_get_mapping_from_packet(struct sr_instance* sr, ui
 							prev = incoming;
 							incoming = incoming->next;
 						}
+
+						pthread_mutex_unlock(&(sr->nat->lock));
 					}
 				}
 			}
