@@ -78,6 +78,7 @@ void *sr_nat_timeout(void *nat_ptr) {  /* Periodic Timout handling */
 		struct sr_tcp_syn *incoming = nat->incoming;
 		struct sr_tcp_syn *prevIncoming = NULL;
 		while (incoming != NULL) {
+
 			if (difftime(curtime, incoming->arrived) >= 6) {
 				/* Timeout exceeded. Send ICMP packet */
 				icmp_send_port_unreachable(nat->sr, incoming->data, incoming->len, incoming->interface);
@@ -107,42 +108,71 @@ void *sr_nat_timeout(void *nat_ptr) {  /* Periodic Timout handling */
 
 		while (mapping != NULL) {
 			int diff = difftime(curtime, mapping->last_updated);	
+			int mappingTimeout = 0;
 
 			switch (mapping->type) {
 				case nat_mapping_icmp: {
-
-					if (diff >= nat->icmpTimeout) {
-
-						/* ICMP timed out. Remove entry */
-						if (prevMapping == NULL) {
-							nat->mappings = mapping->next;
-						} else {
-							prevMapping->next = mapping->next;
-						}
-	
-						/* Free memory */
-						struct sr_nat_mapping *tmp = mapping;
-						mapping = mapping->next;
-						free(tmp);
-
-					} else {
-						prevMapping = mapping;
-						mapping = mapping->next;						
-					}
-
+					
+					/* ICMP timed out. Remove entry */				
+					mappingTimeout = diff >= (nat->icmpTimeout);	
 					break;
 
 				} case nat_mapping_tcp: {
+					struct sr_nat_connection *conn = mapping->conns;
+					struct sr_nat_connection *prevConn = NULL;
 
-					prevMapping = mapping;
-					mapping = mapping->next;
+					while (conn != NULL) {
+						/* Established: Both SYN recevied, no FIN received */
+						int isEstablished = conn->int_syn && conn->ext_syn && !(conn->int_fin) && !(conn->ext_fin);
+						int connTimeout = 0;
+
+						if (isEstablished) {
+							connTimeout = diff >= nat->tcpEstTimeout;
+						} else {
+							connTimeout = diff >= nat->tcpTransTimeout;
+						}
+
+						if (connTimeout) {
+							/* Remove the connection from mapping */
+							if (prevConn == NULL) {
+								mapping->conns = conn->next;
+							} else {	
+								prevConn->next = conn->next;
+							}
+
+							struct sr_nat_connection *tmp = conn;
+							conn = conn->next;
+							free(tmp);
+						} else {
+							/* No timeout. Check next connection */
+							prevConn = conn;
+							conn = conn->next;
+						}
+					}
+
+					/* No more connections left. Can remove mapping */					
+					mappingTimeout = mapping->conns == NULL;	
 					break;
 				}
 			}
-		}
+
+			/* Timeout exceeded on this mapping. Remove it */
+			if (mappingTimeout) {
+				if (prevMapping == NULL) {
+					nat->mappings = mapping->next;
+				} else {
+					prevMapping->next = mapping->next;
+				}
 	
-
-
+				/* Free memory */
+				struct sr_nat_mapping *tmp = mapping;
+				mapping = mapping->next;
+				free(tmp);
+			} else {
+				prevMapping = mapping;
+				mapping = mapping->next;
+			}
+		}
 
 		pthread_mutex_unlock(&(nat->lock));
 	}
@@ -273,8 +303,9 @@ int sr_nat_translate_packet(struct sr_instance* sr,
 				return 0;
 
 			} case ip_protocol_tcp: {
-				/* Packet currently waiting in incoming. Do nothing for now */
+				/* packet currently queued, drop it*/
 				return 1;
+							
 			}
 		}		
 	}
@@ -379,7 +410,7 @@ struct sr_nat_mapping *sr_nat_get_mapping_from_packet(struct sr_instance* sr, ui
 				if (mappingType == nat_mapping_tcp) {
 					sr_tcp_hdr_t *tcp = (sr_tcp_hdr_t *) (packet + sizeof(struct sr_ethernet_hdr) + sizeof(struct sr_ip_hdr));
 					
-					/* Queue unsolicited SYN TCP packets */
+					/* Queue unsolicited incoming SYN TCP packets */
 					if (tcp->flags & TCP_SYN) {
 						pthread_mutex_lock(&(sr->nat->lock));
 

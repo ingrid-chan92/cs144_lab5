@@ -24,17 +24,17 @@ typedef enum {
 } sr_nat_mapping_type;
 
 struct sr_nat_connection {
-	uint32_t int_syn;	
-	uint32_t ext_syn;
+	uint8_t int_syn;	
+	uint8_t ext_syn;
 
-	uint32_t int_fin;	
-	uint32_t ext_fin;
+	uint8_t int_fin;	
+	uint8_t ext_fin;
 
-	uint32_t int_fack;	
-	uint32_t ext_fack;
+	uint8_t int_fack;	
+	uint8_t ext_fack;
 
-	uint32_t ext_ip;
-	uint16_t ext_port;	
+	uint8_t ext_ip;
+	uint8_t ext_port;	
 	
 	struct sr_nat_connection *next;
 };
