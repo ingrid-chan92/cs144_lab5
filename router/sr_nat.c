@@ -11,6 +11,7 @@
 #include "sr_utils.h"
 #include "sr_if.h"
 #include "sr_rt.h"
+#include "icmp_handler.h"
 
 
 int sr_nat_init(struct sr_nat *nat) { /* Initializes the nat */
@@ -43,9 +44,9 @@ int sr_nat_init(struct sr_nat *nat) { /* Initializes the nat */
 
 int sr_nat_destroy(struct sr_nat *nat) {  /* Destroys the nat (free memory) */
 
-  pthread_mutex_lock(&(nat->lock));
+	pthread_mutex_lock(&(nat->lock));
 
-  /* free nat memory here */
+	/* free nat memory here */
 	struct sr_nat_mapping *curr = nat->mappings;
 	while (curr != NULL) {
 		struct sr_nat_mapping *prev = curr;
@@ -66,25 +67,87 @@ int sr_nat_destroy(struct sr_nat *nat) {  /* Destroys the nat (free memory) */
 }
 
 void *sr_nat_timeout(void *nat_ptr) {  /* Periodic Timout handling */
-  struct sr_nat *nat = (struct sr_nat *)nat_ptr;
-  while (1) {
+	struct sr_nat *nat = (struct sr_nat *)nat_ptr;
+	while (1) {
     sleep(1.0);
     pthread_mutex_lock(&(nat->lock));
 
-    /* time_t curtime = time(NULL); */
+    time_t curtime = time(NULL);
 
+    /* Unsolicited incoming SYN timeout */
+	struct sr_tcp_syn *incoming = nat->incoming;
+	struct sr_tcp_syn *prevIncoming = NULL;
+	while (incoming != NULL) {
 
-    /* Unsolicited timeout */
+		if (difftime(curtime, incoming->arrived) >= 6) {
+			/* Timeout exceeded. Send ICMP packet */
+			icmp_send_port_unreachable(nat->sr, incoming->data, incoming->len, incoming->interface);
 
-		/* Established TCP timeout */
+			/* Remove entry from incoming list*/
+			if (prevIncoming == NULL) {
+				nat->incoming = incoming->next;
+			} else {
+				prevIncoming->next = incoming->next;
+			}
 
-		/* Transitory TCP timeout */
+			/* Free incoming entry */
+			struct sr_tcp_syn *tmp = incoming;
+			incoming = incoming->next;
+			free(tmp->data);
+			free(tmp);			
+			
+		} else {
+			prevIncoming = incoming;
+			incoming = incoming->next;
+		}		
+	}
 
-		/* ICMP timeout */
+	/* NAT Mapping timeout */
+	struct sr_nat_mapping *mapping = nat->mappings;
+	struct sr_nat_mapping *prevMapping = NULL;
+	while (mapping != NULL) {
+		int diff = difftime(curtime, mapping->last_updated);		
 
-    pthread_mutex_unlock(&(nat->lock));
-  }
-  return NULL;
+		switch (mapping->type) {
+			case nat_mapping_icmp: {
+				if (diff >= nat->queryTimeout) {
+
+					/* ICMP timed out. Remove entry */
+					if (prevMapping == NULL) {
+						nat->mappings = mapping->next;
+					} else {
+						prevMapping->next = mapping->next;
+					}
+	
+					/* Free memory */
+					struct sr_nat_mapping *tmp = mapping;
+					mapping = mapping->next;
+					free(tmp);
+
+				} else {
+					prevMapping = mapping;
+					mapping = mapping->next;
+				}
+				break;
+
+			} case nat_mapping_tcp: {
+
+				break;
+			}
+		}
+	}
+	
+
+	/* Established TCP timeout */
+
+	/* Transitory TCP timeout */
+
+	/* ICMP timeout */
+
+		pthread_mutex_unlock(&(nat->lock));
+	}
+
+	return NULL;
 }
 
 /* Get the mapping associated with given external port.
@@ -200,7 +263,7 @@ int sr_nat_translate_packet(struct sr_instance* sr,
 
 	/* At this point, packet is valid for mapping-lookup */
 
-	struct sr_nat_mapping *mapping = sr_nat_get_mapping_from_packet(sr, packet, direction);
+	struct sr_nat_mapping *mapping = sr_nat_get_mapping_from_packet(sr, packet, len, interface, direction);
 
 	/* NULL mapping case */
 	if (mapping == NULL) {
@@ -262,7 +325,7 @@ int sr_nat_translate_packet(struct sr_instance* sr,
 	return 0;
 }
 
-struct sr_nat_mapping *sr_nat_get_mapping_from_packet(struct sr_instance* sr, uint8_t *packet, pkt_dir direction) {
+struct sr_nat_mapping *sr_nat_get_mapping_from_packet(struct sr_instance* sr, uint8_t *packet, unsigned int len, char* interface, pkt_dir direction) {
 	
 	struct sr_ip_hdr *ipPacket= (struct sr_ip_hdr *) (packet + sizeof(struct sr_ethernet_hdr));
 
@@ -320,7 +383,11 @@ struct sr_nat_mapping *sr_nat_get_mapping_from_packet(struct sr_instance* sr, ui
 							newTcp->ip_src = ipPacket->ip_src;
 							newTcp->port_src = tcp->src_port;
 							newTcp->arrived = time(NULL);
-							memcpy(newTcp->data, packet + sizeof(struct sr_ethernet_hdr), ICMP_DATA_SIZE);
+
+							newTcp->len = len;
+							newTcp->interface = interface;
+							newTcp->data = (uint8_t *) malloc(len);
+							memcpy(newTcp->data, packet, len);
 
 							/* Put new packet at front of list */
 							newTcp->next = sr->nat->incoming;

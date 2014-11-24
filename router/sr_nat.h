@@ -33,7 +33,11 @@ struct sr_tcp_syn {
 	uint32_t ip_src;
 	uint16_t port_src;
 	time_t arrived;
-	uint8_t data[ICMP_DATA_SIZE];
+
+	uint8_t *data;
+	unsigned int len;
+	char *interface;
+
 	struct sr_tcp_syn *next;
 };
 
@@ -94,7 +98,7 @@ int sr_nat_translate_packet(struct sr_instance* sr,
 /* Given a packet, return the NAT mapping if it exists
  */
 struct sr_nat_mapping *sr_nat_get_mapping_from_packet(struct sr_instance* sr, 
-	uint8_t *packet, pkt_dir direction);
+	uint8_t *packet, unsigned int len, char* interface, pkt_dir direction);
 
 pkt_dir getPacketDirection(struct sr_instance* sr, struct sr_ip_hdr *ipPacket);
 int is_ip_within_nat(struct sr_instance *sr, uint32_t ip) ;
