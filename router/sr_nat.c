@@ -110,7 +110,7 @@ void *sr_nat_timeout(void *nat_ptr) {  /* Periodic Timout handling */
 
 		switch (mapping->type) {
 			case nat_mapping_icmp: {
-				if (diff >= nat->queryTimeout) {
+				if (diff >= nat->icmpTimeout) {
 
 					/* ICMP timed out. Remove entry */
 					if (prevMapping == NULL) {

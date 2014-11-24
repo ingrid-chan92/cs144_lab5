@@ -185,7 +185,7 @@ int main(int argc, char **argv)
 
         sr_nat_init(sr.nat);
 
-        sr.nat->queryTimeout = queryTimeout;
+        sr.nat->icmpTimeout = queryTimeout;
         sr.nat->tcpEstTimeout = tcpEstTimeout;
         sr.nat->tcpTransTimeout = tcpTransTimeout;
 	sr.nat->sr = &sr;

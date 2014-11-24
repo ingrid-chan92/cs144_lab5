@@ -54,7 +54,7 @@ struct sr_nat_mapping {
 
 struct sr_nat {
   /* add any fields here */
-	int queryTimeout;
+	int icmpTimeout;
 	int tcpEstTimeout;
 	int tcpTransTimeout;
 	int nextPort;
