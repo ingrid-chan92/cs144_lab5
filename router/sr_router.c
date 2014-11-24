@@ -102,7 +102,6 @@ void sr_handlepacket(struct sr_instance* sr,
 			int failed = sr_nat_translate_packet(sr, packet, len, interface);
 			if (failed) {
 				/* packet could not be translated. Drop it */
-				printf("Dropped Packet\n");
 				return;
 			}
 		}

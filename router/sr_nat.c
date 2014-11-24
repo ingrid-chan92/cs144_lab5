@@ -69,80 +69,80 @@ int sr_nat_destroy(struct sr_nat *nat) {  /* Destroys the nat (free memory) */
 void *sr_nat_timeout(void *nat_ptr) {  /* Periodic Timout handling */
 	struct sr_nat *nat = (struct sr_nat *)nat_ptr;
 	while (1) {
-    sleep(1.0);
-    pthread_mutex_lock(&(nat->lock));
+		sleep(1.0);
+		pthread_mutex_lock(&(nat->lock));
 
-    time_t curtime = time(NULL);
+		time_t curtime = time(NULL);
 
-    /* Unsolicited incoming SYN timeout */
-	struct sr_tcp_syn *incoming = nat->incoming;
-	struct sr_tcp_syn *prevIncoming = NULL;
-	while (incoming != NULL) {
+		/* Unsolicited incoming SYN timeout */
+		struct sr_tcp_syn *incoming = nat->incoming;
+		struct sr_tcp_syn *prevIncoming = NULL;
+		while (incoming != NULL) {
+			if (difftime(curtime, incoming->arrived) >= 6) {
+				/* Timeout exceeded. Send ICMP packet */
+				icmp_send_port_unreachable(nat->sr, incoming->data, incoming->len, incoming->interface);
 
-		if (difftime(curtime, incoming->arrived) >= 6) {
-			/* Timeout exceeded. Send ICMP packet */
-			icmp_send_port_unreachable(nat->sr, incoming->data, incoming->len, incoming->interface);
-
-			/* Remove entry from incoming list*/
-			if (prevIncoming == NULL) {
-				nat->incoming = incoming->next;
-			} else {
-				prevIncoming->next = incoming->next;
-			}
-
-			/* Free incoming entry */
-			struct sr_tcp_syn *tmp = incoming;
-			incoming = incoming->next;
-			free(tmp->data);
-			free(tmp);			
-			
-		} else {
-			prevIncoming = incoming;
-			incoming = incoming->next;
-		}		
-	}
-
-	/* NAT Mapping timeout */
-	struct sr_nat_mapping *mapping = nat->mappings;
-	struct sr_nat_mapping *prevMapping = NULL;
-	while (mapping != NULL) {
-		int diff = difftime(curtime, mapping->last_updated);		
-
-		switch (mapping->type) {
-			case nat_mapping_icmp: {
-				if (diff >= nat->icmpTimeout) {
-
-					/* ICMP timed out. Remove entry */
-					if (prevMapping == NULL) {
-						nat->mappings = mapping->next;
-					} else {
-						prevMapping->next = mapping->next;
-					}
-	
-					/* Free memory */
-					struct sr_nat_mapping *tmp = mapping;
-					mapping = mapping->next;
-					free(tmp);
-
+				/* Remove entry from incoming list*/
+				if (prevIncoming == NULL) {
+					nat->incoming = incoming->next;
 				} else {
+					prevIncoming->next = incoming->next;
+				}
+
+				/* Free incoming entry */
+				struct sr_tcp_syn *tmp = incoming;
+				incoming = incoming->next;
+				free(tmp->data);
+				free(tmp);			
+			
+			} else {
+				prevIncoming = incoming;
+				incoming = incoming->next;
+			}		
+		}
+
+		/* NAT Mapping timeout */
+		struct sr_nat_mapping *mapping = nat->mappings;
+		struct sr_nat_mapping *prevMapping = NULL;
+
+		while (mapping != NULL) {
+			int diff = difftime(curtime, mapping->last_updated);	
+
+			switch (mapping->type) {
+				case nat_mapping_icmp: {
+
+					if (diff >= nat->icmpTimeout) {
+
+						/* ICMP timed out. Remove entry */
+						if (prevMapping == NULL) {
+							nat->mappings = mapping->next;
+						} else {
+							prevMapping->next = mapping->next;
+						}
+	
+						/* Free memory */
+						struct sr_nat_mapping *tmp = mapping;
+						mapping = mapping->next;
+						free(tmp);
+
+					} else {
+						prevMapping = mapping;
+						mapping = mapping->next;						
+					}
+
+					break;
+
+				} case nat_mapping_tcp: {
+
 					prevMapping = mapping;
 					mapping = mapping->next;
+					break;
 				}
-				break;
-
-			} case nat_mapping_tcp: {
-
-				break;
 			}
 		}
-	}
 	
 
-	/* Established TCP timeout */
 
-	/* Transitory TCP timeout */
-
-	/* ICMP timeout */
 
 		pthread_mutex_unlock(&(nat->lock));
 	}
@@ -281,6 +281,11 @@ int sr_nat_translate_packet(struct sr_instance* sr,
 
 	/* Mapping exists/Packet is valid and must be translated */
 
+	/* Process connections if type is TCP */
+	if (mapping->type == nat_mapping_tcp) {
+		sr_nat_update_tcp_connection(sr, packet, mapping, direction);
+	}
+
 	/* Rewrite the IP, Port, and recompute checksum*/
 	switch(ip_p) {
 		case ip_protocol_icmp: {
@@ -323,6 +328,16 @@ int sr_nat_translate_packet(struct sr_instance* sr,
 	
 	free(mapping);
 	return 0;
+}
+
+void sr_nat_update_tcp_connection(struct sr_instance *sr, uint8_t *packet, struct sr_nat_mapping *mapping, pkt_dir direction) {
+	struct sr_nat *nat = sr->nat;
+/*	struct sr_ip_hdr *ipPacket= (struct sr_ip_hdr *) (packet + sizeof(struct sr_ethernet_hdr));
+	sr_tcp_hdr_t *tcpPacket = (sr_tcp_hdr_t *) (packet + sizeof(struct sr_ethernet_hdr) + sizeof(struct sr_ip_hdr));
+*/
+	pthread_mutex_lock(&(nat->lock));
+	
+	pthread_mutex_unlock(&(nat->lock));
 }
 
 struct sr_nat_mapping *sr_nat_get_mapping_from_packet(struct sr_instance* sr, uint8_t *packet, unsigned int len, char* interface, pkt_dir direction) {
@@ -403,11 +418,9 @@ struct sr_nat_mapping *sr_nat_get_mapping_from_packet(struct sr_instance* sr, ui
 		} case dir_outgoing: {
 			mapping = sr_nat_lookup_internal(sr->nat, ipPacket->ip_src, port, mappingType);
 
-			if (mapping == NULL) {
-				/* Create new mapping for this IP/Port entry */
-				mapping = sr_nat_insert_mapping(sr->nat, ipPacket->ip_src, port, mappingType);
+			if (mapping == NULL) {				
 
-				/* TCP Processing */
+				/* Additional TCP processing */
 				if (mappingType == nat_mapping_tcp) {
 					sr_tcp_hdr_t *tcp = (sr_tcp_hdr_t *) (packet + sizeof(struct sr_ethernet_hdr) + sizeof(struct sr_ip_hdr));
 					
@@ -420,6 +433,7 @@ struct sr_nat_mapping *sr_nat_get_mapping_from_packet(struct sr_instance* sr, ui
 						/* Check if this TCP packet is already waiting */						
 						while (incoming != NULL) {
 							if ((incoming->ip_src == ipPacket->ip_dst) && (incoming->port_src == tcp->dest_port)) {
+
 								/* Silently drop matching incoming SYN packet */
 								if (prev != NULL) {
 									prev->next = incoming->next;
@@ -428,13 +442,20 @@ struct sr_nat_mapping *sr_nat_get_mapping_from_packet(struct sr_instance* sr, ui
 								}	
 								break;								
 							}
+
 							prev = incoming;
 							incoming = incoming->next;
 						}
 
 						pthread_mutex_unlock(&(sr->nat->lock));
+					} else {
+						/* No existing mapping for non-SYN TCP packet. Drop it */
+						return NULL;
 					}
 				}
+
+				/* Create new mapping for this IP/Port entry */
+				mapping = sr_nat_insert_mapping(sr->nat, ipPacket->ip_src, port, mappingType);
 			}
 			break;
 

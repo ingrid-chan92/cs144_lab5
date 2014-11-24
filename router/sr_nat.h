@@ -24,9 +24,19 @@ typedef enum {
 } sr_nat_mapping_type;
 
 struct sr_nat_connection {
-  /* add TCP connection state data members here */
+	uint32_t int_syn;	
+	uint32_t ext_syn;
 
-  struct sr_nat_connection *next;
+	uint32_t int_fin;	
+	uint32_t ext_fin;
+
+	uint32_t int_fack;	
+	uint32_t ext_fack;
+
+	uint32_t ext_ip;
+	uint16_t ext_port;	
+	
+	struct sr_nat_connection *next;
 };
 
 struct sr_tcp_syn {
@@ -99,6 +109,8 @@ int sr_nat_translate_packet(struct sr_instance* sr,
  */
 struct sr_nat_mapping *sr_nat_get_mapping_from_packet(struct sr_instance* sr, 
 	uint8_t *packet, unsigned int len, char* interface, pkt_dir direction);
+
+void sr_nat_update_tcp_connection(struct sr_instance *sr, uint8_t *packet, struct sr_nat_mapping *mapping, pkt_dir direction);
 
 pkt_dir getPacketDirection(struct sr_instance* sr, struct sr_ip_hdr *ipPacket);
 int is_ip_within_nat(struct sr_instance *sr, uint32_t ip) ;
