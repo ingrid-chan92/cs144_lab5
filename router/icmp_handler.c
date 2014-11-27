@@ -83,6 +83,10 @@ void icmp_send_time_exceeded(struct sr_instance* sr,
         unsigned int len,
         char* interface/* lent */)
 {
+	/* Re-increment TTL */
+	struct sr_ip_hdr *ipHeader = (struct sr_ip_hdr *) (packet + sizeof(sr_ethernet_hdr_t));
+	ipHeader->ip_ttl = 1;
+
     icmp_send_type3(sr, packet, len, interface, icmp_time_exceeded_type, 0);
 }
 
@@ -112,10 +116,11 @@ void icmp_send_type3(struct sr_instance* sr,
 	struct sr_ip_hdr *ipHeader = (struct sr_ip_hdr *) (response + sizeof(sr_ethernet_hdr_t));
 	struct sr_ip_hdr *packetIp = (struct sr_ip_hdr *) (packet + sizeof(sr_ethernet_hdr_t));	
 	ipHeader->ip_hl = 5;
+	ipHeader->ip_id = 0;
 	ipHeader->ip_v = 4;
 	ipHeader->ip_tos = 0;
-	ipHeader->ip_off = 0;
-	ipHeader->ip_ttl = 64;
+	ipHeader->ip_off = htons(IP_DF);
+	ipHeader->ip_ttl = 100;
 	ipHeader->ip_dst = packetIp->ip_src;
 	ipHeader->ip_src = sourceIP;
 	ipHeader->ip_len = htons(newLen - sizeof(sr_ethernet_hdr_t));
@@ -130,6 +135,9 @@ void icmp_send_type3(struct sr_instance* sr,
 	icmpResponse->unused = 0;
 	icmpResponse->next_mtu = 0;
 
+	/* Recompute IP packet sum before copying */
+	packetIp->ip_sum = 0;
+	packetIp->ip_sum = cksum(packetIp, sizeof(struct sr_ip_hdr));
 	memcpy(icmpResponse->data, packet + sizeof(sr_ethernet_hdr_t), sizeof(sr_ip_hdr_t) + 8);
 
 	icmpResponse->icmp_sum = 0;
