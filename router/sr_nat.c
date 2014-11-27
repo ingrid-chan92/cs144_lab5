@@ -291,6 +291,11 @@ int sr_nat_translate_packet(struct sr_instance* sr,
 		return 0;
 	}
 
+	/* External src trying to reach private IP behind NAT. Block */
+	if (direction == dir_blocked) {
+		return 1;
+	}
+
 	/* At this point, packet is valid for mapping-lookup */
 
 	struct sr_nat_mapping *mapping = sr_nat_get_mapping_from_packet(sr, packet, len, interface, direction);
@@ -490,7 +495,7 @@ struct sr_nat_mapping *sr_nat_get_mapping_from_packet(struct sr_instance* sr, ui
 			}
 			break;
 
-		} case dir_notCrossing: {
+		} default: {
 			printf("ERROR: Should never be here for non-crossing packet\n");
 			break;			
 		}
@@ -514,6 +519,11 @@ pkt_dir getPacketDirection(struct sr_instance* sr, struct sr_ip_hdr *ipPacket) {
 	/* UNKNOWN DEST IP: Do nothing to this packet */
 	if (internalDest < 0) {
 		return dir_notCrossing;
+	}
+
+	/* BLOCKED: Destination is private, source is external */
+	if (!internalSrc && internalDest) {
+		return dir_blocked;
 	}
 
 	/* OUTCOMING: src is inside NAT. Dest is outside NAT */

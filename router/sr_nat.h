@@ -14,7 +14,8 @@
 typedef enum {
   	dir_incoming,
 	dir_outgoing,
-	dir_notCrossing
+	dir_notCrossing,
+	dir_blocked
 } pkt_dir;
 
 typedef enum {
