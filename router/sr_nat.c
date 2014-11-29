@@ -426,13 +426,13 @@ void sr_nat_update_tcp_connection(struct sr_instance *sr, uint8_t *packet, struc
 		case dir_incoming: {
 			conn->ext_syn = conn->ext_syn || tcpPacket->flags & TCP_SYN;
 			conn->ext_fin = conn->ext_fin || tcpPacket->flags & TCP_FIN;
-			conn->ext_fack = conn->ext_fack || (conn->ext_fin && (tcpPacket->flags & TCP_ACK));
+			conn->ext_fack = conn->ext_fack || (conn->int_fin && (tcpPacket->flags & TCP_ACK));
 			break;
 			
 		} case dir_outgoing: {
 			conn->int_syn = conn->int_syn || tcpPacket->flags & TCP_SYN;	
 			conn->int_fin = conn->int_fin || tcpPacket->flags & TCP_FIN;	
-			conn->int_fack = conn->int_fack || (conn->int_fin && (tcpPacket->flags & TCP_ACK));
+			conn->int_fack = conn->int_fack || (conn->ext_fin && (tcpPacket->flags & TCP_ACK));
 			break;
 	
 		} default: {
