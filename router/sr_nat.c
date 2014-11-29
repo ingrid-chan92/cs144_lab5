@@ -106,13 +106,13 @@ void *sr_nat_timeout(void *nat_ptr) {  /* Periodic Timout handling */
 		struct sr_nat_mapping *mapping = nat->mappings;
 		struct sr_nat_mapping *prevMapping = NULL;
 
-		while (mapping != NULL) {
-			int diff = difftime(curtime, mapping->last_updated);	
+		while (mapping != NULL) {			
 			int mappingTimeout = 0;
 
 			switch (mapping->type) {
 				case nat_mapping_icmp: {
-					
+					int diff = difftime(curtime, mapping->last_updated);						
+
 					/* ICMP timed out. Remove entry */				
 					mappingTimeout = diff >= (nat->icmpTimeout);	
 					break;
@@ -122,6 +122,8 @@ void *sr_nat_timeout(void *nat_ptr) {  /* Periodic Timout handling */
 					struct sr_nat_connection *prevConn = NULL;
 
 					while (conn != NULL) {
+						int diff = difftime(curtime, conn->update_time);
+
 						/* Established: Both SYN recevied, no FIN received */
 						int isEstablished = conn->int_syn && conn->ext_syn && !(conn->int_fin) && !(conn->ext_fin);
 						int connTimeout = 0;
@@ -368,10 +370,89 @@ int sr_nat_translate_packet(struct sr_instance* sr,
 
 void sr_nat_update_tcp_connection(struct sr_instance *sr, uint8_t *packet, struct sr_nat_mapping *mapping, pkt_dir direction) {
 	struct sr_nat *nat = sr->nat;
-/*	struct sr_ip_hdr *ipPacket= (struct sr_ip_hdr *) (packet + sizeof(struct sr_ethernet_hdr));
+	sr_ip_hdr_t *ipPacket= (struct sr_ip_hdr *) (packet + sizeof(struct sr_ethernet_hdr));
 	sr_tcp_hdr_t *tcpPacket = (sr_tcp_hdr_t *) (packet + sizeof(struct sr_ethernet_hdr) + sizeof(struct sr_ip_hdr));
-*/
+
 	pthread_mutex_lock(&(nat->lock));
+
+	uint32_t ip;
+	uint16_t port;
+
+	/* Get the external ip and port*/
+	switch (direction) {
+		case dir_incoming: {
+			ip = ipPacket->ip_src;
+			port = tcpPacket->src_port;
+		} case dir_outgoing: {
+			ip = ipPacket->ip_dst;
+			port = tcpPacket->dest_port;
+		} default: {
+			printf("ERROR at sr_nat_update_tcp_connection: Should never be here\n");
+			return;
+		}
+	} 
+
+	/* Get matching connection. Create new one if it does not exist*/
+	struct sr_nat_connection *conn = mapping->conns;
+	struct sr_nat_connection *prev = NULL;
+	while (conn != NULL) {	
+		if (conn->ext_ip == ip && conn->ext_port == port) {
+			break;
+		}
+		prev = conn;
+		conn = conn->next;
+	}
+
+	if (conn == NULL) {
+		conn = (struct sr_nat_connection *) malloc(sizeof(struct sr_nat_connection));
+		conn->ext_ip = ip;
+		conn->ext_port = port;
+
+		conn->ext_syn = 0;
+		conn->ext_fin = 0;
+		conn->ext_fack = 0;
+		conn->int_syn = 0;	
+		conn->int_fin = 0;	
+		conn->int_fack = 0;	
+
+		conn->next = mapping->conns;
+		mapping->conns = conn;
+	}
+
+	/* At this point, connection struct exists. Start TCP syncing flags */
+	conn->update_time = time(NULL);
+
+	switch (direction) {
+		case dir_incoming: {
+			conn->ext_syn = conn->ext_syn || tcpPacket->flags & TCP_SYN;
+			conn->ext_fin = conn->ext_fin || tcpPacket->flags & TCP_FIN;
+			conn->ext_fack = conn->ext_fack || (conn->ext_fin && (tcpPacket->flags & TCP_ACK));
+			break;
+			
+		} case dir_outgoing: {
+			conn->int_syn = conn->int_syn || tcpPacket->flags & TCP_SYN;	
+			conn->int_fin = conn->int_fin || tcpPacket->flags & TCP_FIN;	
+			conn->int_fack = conn->int_fack || (conn->int_fin && (tcpPacket->flags & TCP_ACK));
+			break;
+	
+		} default: {
+			printf("ERROR at sr_nat_update_tcp_connection: Should never be here\n");
+			return;
+		}
+	} 
+
+	/* Check if connection needs to be closed */
+	if ((tcpPacket->flags & TCP_RST) || (conn->int_fack && conn->ext_fack)) {
+		/* Remove this connection from mapping */
+		if (prev == NULL) {
+			mapping->conns = conn->next;
+		} else {
+			prev->next = conn->next;
+		}
+		free(conn);
+
+		/* Timeout will clean up mappings without connections */	
+	}	
 	
 	pthread_mutex_unlock(&(nat->lock));
 }
@@ -459,7 +540,7 @@ struct sr_nat_mapping *sr_nat_get_mapping_from_packet(struct sr_instance* sr, ui
 				/* Additional TCP processing */
 				if (mappingType == nat_mapping_tcp) {
 					sr_tcp_hdr_t *tcp = (sr_tcp_hdr_t *) (packet + sizeof(struct sr_ethernet_hdr) + sizeof(struct sr_ip_hdr));
-					
+			
 					if (tcp->flags & TCP_SYN) {
 						pthread_mutex_lock(&(sr->nat->lock));
 
@@ -496,7 +577,7 @@ struct sr_nat_mapping *sr_nat_get_mapping_from_packet(struct sr_instance* sr, ui
 			break;
 
 		} default: {
-			printf("ERROR: Should never be here for non-crossing packet\n");
+			printf("ERROR: Should never be here\n");
 			break;			
 		}
 	}

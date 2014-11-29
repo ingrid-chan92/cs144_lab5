@@ -9,7 +9,10 @@
 #include "sr_router.h"
 #include "sr_protocol.h"
 
+#define TCP_FIN 0x01
 #define TCP_SYN 0x02
+#define TCP_RST 0x04
+#define TCP_ACK 0x10
 
 typedef enum {
   	dir_incoming,
@@ -36,6 +39,8 @@ struct sr_nat_connection {
 
 	uint8_t ext_ip;
 	uint8_t ext_port;	
+
+	time_t update_time;
 	
 	struct sr_nat_connection *next;
 };

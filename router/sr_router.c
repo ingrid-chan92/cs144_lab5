@@ -169,12 +169,6 @@ void processIP(struct sr_instance* sr,
 
 	} else if (ipHeader->ip_p == ip_protocol_tcp || ipHeader->ip_p == ip_protocol_udp) {
 
-		/* Reply with timeout if TTL exceeded */		
-		if (ipHeader->ip_ttl == 0) {
-			icmp_send_time_exceeded(sr, packet, len, interface);
-			return;
-		}
-
 		/* TCP or UDP Payload */
 		icmp_send_port_unreachable(sr, packet, len, interface);
 
