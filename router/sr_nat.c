@@ -414,6 +414,8 @@ void sr_nat_update_tcp_connection(struct sr_instance *sr, uint8_t *packet, struc
 		conn->int_syn = 0;	
 		conn->int_fin = 0;	
 		conn->int_fack = 0;	
+		conn->int_fin_seqnum = 0;
+		conn->ext_fin_seqnum = 0;
 
 		conn->next = mapping->conns;
 		mapping->conns = conn;
@@ -424,15 +426,23 @@ void sr_nat_update_tcp_connection(struct sr_instance *sr, uint8_t *packet, struc
 
 	switch (direction) {
 		case dir_incoming: {
+			if (tcpPacket->flags & TCP_FIN) {
+				conn->ext_fin_seqnum = ntohl(tcpPacket->seq_num);
+			}
+
 			conn->ext_syn = conn->ext_syn || tcpPacket->flags & TCP_SYN;
 			conn->ext_fin = conn->ext_fin || tcpPacket->flags & TCP_FIN;
-			conn->ext_fack = conn->ext_fack || (conn->int_fin && (tcpPacket->flags & TCP_ACK));
+			conn->ext_fack = conn->ext_fack || (conn->int_fin && (conn->int_fin_seqnum < ntohl(tcpPacket->ack_num)));
 			break;
 			
 		} case dir_outgoing: {
+				if (tcpPacket->flags & TCP_FIN) {
+				conn->int_fin_seqnum = ntohl(tcpPacket->seq_num);
+			}
+
 			conn->int_syn = conn->int_syn || tcpPacket->flags & TCP_SYN;	
 			conn->int_fin = conn->int_fin || tcpPacket->flags & TCP_FIN;	
-			conn->int_fack = conn->int_fack || (conn->ext_fin && (tcpPacket->flags & TCP_ACK));
+			conn->int_fack = conn->int_fack || (conn->ext_fin && (conn->ext_fin_seqnum < ntohl(tcpPacket->ack_num)));
 			break;
 	
 		} default: {
