@@ -337,9 +337,14 @@ int sr_nat_translate_packet(struct sr_instance* sr,
 				ipPacket->ip_src = mapping->ip_ext;
 				icmpPacket->icmp_identifier = mapping->aux_ext;
 			}
-			
-			icmpPacket->icmp_sum = 0;
-			icmpPacket->icmp_sum = cksum(icmpPacket, sizeof(sr_icmp_hdr_t));
+
+			if (icmpPacket->icmp_type == 3) {
+				icmpPacket->icmp_sum = 0;
+				icmpPacket->icmp_sum = cksum(icmpPacket, len - sizeof(struct sr_ip_hdr) - sizeof(struct sr_ethernet_hdr));
+			} else {
+				icmpPacket->icmp_sum = 0;
+				icmpPacket->icmp_sum = cksum(icmpPacket, len - sizeof(struct sr_ip_hdr) - sizeof(struct sr_ethernet_hdr));
+			}
 			break;
 
 		} case ip_protocol_tcp: {
@@ -355,7 +360,7 @@ int sr_nat_translate_packet(struct sr_instance* sr,
 			}	
 			
 			tcpPacket->sum = 0;
-			tcpPacket->sum = cksum(tcpPacket, sizeof(sr_tcp_hdr_t));				
+			tcpPacket->sum = cksum(tcpPacket, len - sizeof(struct sr_ip_hdr) - sizeof(struct sr_ethernet_hdr));				
 			break;
 		 }
 	}
@@ -383,11 +388,13 @@ void sr_nat_update_tcp_connection(struct sr_instance *sr, uint8_t *packet, struc
 		case dir_incoming: {
 			ip = ipPacket->ip_src;
 			port = tcpPacket->src_port;
+			break;
 		} case dir_outgoing: {
 			ip = ipPacket->ip_dst;
 			port = tcpPacket->dest_port;
+			break;
 		} default: {
-			printf("ERROR at sr_nat_update_tcp_connection: Should never be here\n");
+			printf("ERROR at sr_nat_update_tcp_connection: Should never be here 1\n");
 			return;
 		}
 	} 
@@ -430,27 +437,27 @@ void sr_nat_update_tcp_connection(struct sr_instance *sr, uint8_t *packet, struc
 				conn->ext_fin_seqnum = ntohl(tcpPacket->seq_num);
 			}
 
-			conn->ext_syn = conn->ext_syn || tcpPacket->flags & TCP_SYN;
-			conn->ext_fin = conn->ext_fin || tcpPacket->flags & TCP_FIN;
+			conn->ext_syn = conn->ext_syn || (tcpPacket->flags & TCP_SYN);
+			conn->ext_fin = conn->ext_fin || (tcpPacket->flags & TCP_FIN);
 			conn->ext_fack = conn->ext_fack || (conn->int_fin && (conn->int_fin_seqnum < ntohl(tcpPacket->ack_num)));
 			break;
 			
 		} case dir_outgoing: {
-				if (tcpPacket->flags & TCP_FIN) {
+			if (tcpPacket->flags & TCP_FIN) {
 				conn->int_fin_seqnum = ntohl(tcpPacket->seq_num);
 			}
 
-			conn->int_syn = conn->int_syn || tcpPacket->flags & TCP_SYN;	
-			conn->int_fin = conn->int_fin || tcpPacket->flags & TCP_FIN;	
+			conn->int_syn = conn->int_syn || (tcpPacket->flags & TCP_SYN);	
+			conn->int_fin = conn->int_fin || (tcpPacket->flags & TCP_FIN);	
 			conn->int_fack = conn->int_fack || (conn->ext_fin && (conn->ext_fin_seqnum < ntohl(tcpPacket->ack_num)));
 			break;
 	
 		} default: {
-			printf("ERROR at sr_nat_update_tcp_connection: Should never be here\n");
+			printf("ERROR at sr_nat_update_tcp_connection: Should never be here 2\n");
 			return;
 		}
 	} 
-
+printf("ext: %d %d %d  int: %d %d %d\n", conn->ext_syn, conn->ext_fin, conn->ext_fack, conn->int_syn, conn->int_fin, conn->int_fack);
 	/* Check if connection needs to be closed */
 	if ((tcpPacket->flags & TCP_RST) || (conn->int_fack && conn->ext_fack)) {
 		/* Remove this connection from mapping */
