@@ -43,7 +43,7 @@ void icmp_send_echo_reply(struct sr_instance* sr,
 	icmpHeader->icmp_type = htons(icmp_echo_reply_type);
 	icmpHeader->icmp_code = htons(0);
 	icmpHeader->icmp_sum = 0;
-	icmpHeader->icmp_sum = cksum(icmpHeader, sizeof(struct sr_icmp_hdr));
+	icmpHeader->icmp_sum = cksum(icmpHeader, len - sizeof(sr_ethernet_hdr_t) - sizeof(sr_ip_hdr_t));
 
 	/* Record this IP into arp cache if not found */
 	struct sr_arpentry *arpEntry = sr_arpcache_lookup(&(sr->cache), ntohl(ipHeader->ip_dst));
