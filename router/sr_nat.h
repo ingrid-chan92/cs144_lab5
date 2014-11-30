@@ -40,8 +40,8 @@ struct sr_nat_connection {
 	uint32_t int_fin_seqnum;
 	uint32_t ext_fin_seqnum;
 
-	uint8_t ext_ip;
-	uint8_t ext_port;	
+	uint32_t ext_ip;
+	uint16_t ext_port;	
 
 	time_t update_time;
 	

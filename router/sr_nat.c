@@ -145,15 +145,16 @@ void *sr_nat_timeout(void *nat_ptr) {  /* Periodic Timout handling */
 							struct sr_nat_connection *tmp = conn;
 							conn = conn->next;
 							free(tmp);
+
+							/* No more connections left. Can remove mapping */					
+							mappingTimeout = mapping->conns == NULL;	
+
 						} else {
 							/* No timeout. Check next connection */
 							prevConn = conn;
 							conn = conn->next;
 						}
 					}
-
-					/* No more connections left. Can remove mapping */					
-					mappingTimeout = mapping->conns == NULL;	
 					break;
 				}
 			}
@@ -165,11 +166,12 @@ void *sr_nat_timeout(void *nat_ptr) {  /* Periodic Timout handling */
 				} else {
 					prevMapping->next = mapping->next;
 				}
-	
+
 				/* Free memory */
 				struct sr_nat_mapping *tmp = mapping;
 				mapping = mapping->next;
 				free(tmp);
+
 			} else {
 				prevMapping = mapping;
 				mapping = mapping->next;
@@ -398,6 +400,24 @@ void sr_nat_update_tcp_connection(struct sr_instance *sr, uint8_t *packet, struc
 		}
 	} 
 
+	/* Get pointer to actual mapping*/
+	struct sr_nat_mapping *prevMapping = NULL;
+	struct sr_nat_mapping *actual = nat->mappings;
+	while (actual != NULL) {
+		if (actual->ip_int == mapping->ip_int && actual->aux_int ==  mapping->aux_int && actual->type == mapping->type) {
+			mapping = actual;
+			break;						
+		}
+		prevMapping = actual;
+		actual = actual->next;
+	}
+	
+	/* Should never print this */
+	if (actual == NULL) {
+		printf("COULD NOT FIND MAPPING\n");
+		return;
+	}
+
 	/* Get matching connection. Create new one if it does not exist*/
 	struct sr_nat_connection *conn = mapping->conns;
 	struct sr_nat_connection *prev = NULL;
@@ -413,7 +433,6 @@ void sr_nat_update_tcp_connection(struct sr_instance *sr, uint8_t *packet, struc
 		conn = (struct sr_nat_connection *) malloc(sizeof(struct sr_nat_connection));
 		conn->ext_ip = ip;
 		conn->ext_port = port;
-
 		conn->ext_syn = 0;
 		conn->ext_fin = 0;
 		conn->ext_fack = 0;
@@ -422,7 +441,6 @@ void sr_nat_update_tcp_connection(struct sr_instance *sr, uint8_t *packet, struc
 		conn->int_fack = 0;	
 		conn->int_fin_seqnum = 0;
 		conn->ext_fin_seqnum = 0;
-
 		conn->next = mapping->conns;
 		mapping->conns = conn;
 	}
@@ -467,9 +485,17 @@ void sr_nat_update_tcp_connection(struct sr_instance *sr, uint8_t *packet, struc
 		}
 		free(conn);
 
-		/* Timeout will clean up mappings without connections */	
+		/* Cleanup mapping if no more connections*/	
+		if (mapping->conns == NULL) {
+			if (prevMapping == NULL) {
+				nat->mappings = mapping->next;
+			} else {
+				prevMapping->next = mapping->next;
+			}
+			free(mapping);
+		}
 	}	
-	
+
 	pthread_mutex_unlock(&(nat->lock));
 }
 
