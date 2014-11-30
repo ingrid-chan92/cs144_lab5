@@ -359,8 +359,7 @@ int sr_nat_translate_packet(struct sr_instance* sr,
 				tcpPacket->src_port = mapping->aux_ext;
 			}	
 			
-			tcpPacket->sum = 0;
-			tcpPacket->sum = cksum(tcpPacket, len - sizeof(struct sr_ip_hdr) - sizeof(struct sr_ethernet_hdr));				
+			tcpPacket->sum = tcp_cksum(packet, len);				
 			break;
 		 }
 	}
@@ -457,7 +456,7 @@ void sr_nat_update_tcp_connection(struct sr_instance *sr, uint8_t *packet, struc
 			return;
 		}
 	} 
-printf("ext: %d %d %d  int: %d %d %d\n", conn->ext_syn, conn->ext_fin, conn->ext_fack, conn->int_syn, conn->int_fin, conn->int_fack);
+
 	/* Check if connection needs to be closed */
 	if ((tcpPacket->flags & TCP_RST) || (conn->int_fack && conn->ext_fack)) {
 		/* Remove this connection from mapping */

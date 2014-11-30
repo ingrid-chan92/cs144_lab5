@@ -34,6 +34,7 @@ int is_sane_ip_packet(uint8_t * packet, unsigned int len);
 int is_sane_icmp_packet(uint8_t * packet, unsigned int len);
 
 uint16_t cksum(const void *_data, int len);
+uint16_t tcp_cksum(uint8_t * packet, int len);
 
 uint16_t ethertype(uint8_t *buf);
 uint8_t ip_protocol(uint8_t *buf);

@@ -6,6 +6,34 @@
 #include "sr_rt.h"
 
 
+uint16_t tcp_cksum(uint8_t *packet, int len) {
+	sr_ip_hdr_t *ip = (sr_ip_hdr_t *) packet + sizeof(sr_ethernet_hdr_t);
+	sr_tcp_hdr_t *tcp = (sr_tcp_hdr_t *) packet + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t);
+
+	/* init */
+	size_t tcpLen = len - sizeof(sr_ethernet_hdr_t) - sizeof(sr_ip_hdr_t);
+	size_t buffLen = sizeof(sr_tcp_pseudo_hdr_t) + tcpLen;	
+	uint8_t *buff = (uint8_t *) malloc(buffLen);	
+	memset(buff, 0, buffLen);
+	
+	/* Create pseudoheader */
+	sr_tcp_pseudo_hdr_t *pseudoHdr = (sr_tcp_pseudo_hdr_t *) buff;
+	pseudoHdr->ip_src = ip->ip_src;
+	pseudoHdr->ip_dst = ip->ip_dst;
+	pseudoHdr->reserved = 0;
+	pseudoHdr->protocol = ip_protocol_tcp;
+	pseudoHdr->len = htons(tcpLen);	
+	
+	/* Copy tcp packet into buffer */
+	tcp->sum = 0;
+	memcpy(buff + sizeof(sr_tcp_pseudo_hdr_t), tcp, tcpLen);
+
+	uint16_t checksum = cksum(buff, buffLen);
+	free(buff);
+	return checksum;
+	
+}
+
 struct sr_rt *findLongestMatchPrefix(struct sr_rt *rt, uint32_t ip_dst) {
 	struct sr_rt *closestMatch = NULL; 
 	while (rt != NULL) {
